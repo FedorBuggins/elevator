@@ -1,8 +1,8 @@
-use core::panic;
 use std::{
   collections::BTreeSet,
   fmt,
   io::{stdin, Error, ErrorKind, Result},
+  process::Command,
   sync::mpsc::{channel, Receiver, TryRecvError},
   thread,
   time::Duration,
@@ -24,6 +24,12 @@ enum State {
   Stopped,
   Moving(Dir),
   Opened,
+}
+
+impl State {
+  fn is_opened(&self) -> bool {
+    matches!(self, Self::Opened)
+  }
 }
 
 #[derive(Default)]
@@ -87,10 +93,6 @@ impl Elevator {
     }
   }
 
-  fn is_opened(&self) -> bool {
-    matches!(self.state, State::Opened)
-  }
-
   fn idx(&self) -> usize {
     self.floors().position(|f| f == self.cur).unwrap()
   }
@@ -102,15 +104,15 @@ impl Elevator {
 
 impl fmt::Display for Elevator {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    let s = if self.is_opened() { "*" } else { "v" };
-    let space = " ".repeat(6 * self.idx() + 2);
     let state = self.state();
+    let v = if state.is_opened() { "*" } else { "v" };
+    let space = " ".repeat(6 * self.idx() + 2);
     let floors = self
       .floors()
       .map(|Floor(floor)| format!("[{floor:>2} ]"))
       .collect::<Vec<_>>()
       .join(" ");
-    write!(f, "{space}{s}\n{floors}\n\nState: {state:?}")
+    write!(f, "{space}{v}\n{floors}\n\nState: {state:?}")
   }
 }
 
@@ -122,8 +124,10 @@ fn main() -> Result<()> {
     match floor_channel.try_recv() {
       Ok(Ok(floor)) => *error = elevator.move_to(floor).err(),
       Ok(Err(err)) => *error = Some(err),
-      Err(TryRecvError::Disconnected) => panic!(),
       Err(TryRecvError::Empty) => (),
+      Err(TryRecvError::Disconnected) => {
+        Err(Error::other("stdin scan error"))?;
+      }
     }
     elevator.tick();
     draw_ui(error.as_ref(), elevator)?;
@@ -132,7 +136,7 @@ fn main() -> Result<()> {
 }
 
 fn draw_ui(error: Option<&Error>, elevator: &Elevator) -> Result<()> {
-  std::process::Command::new("clear").status()?;
+  Command::new("clear").status()?;
   #[rustfmt::skip]
   println!(r#"
 Elevator
